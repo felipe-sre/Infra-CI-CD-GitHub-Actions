@@ -1,0 +1,56 @@
+services:
+  api:
+    image: d34tecnologia/cleaners-api
+    container_name: cleaners-api
+    restart: always
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      # (opcional mas recomendado) passa a URL de ingest do Seq para a API
+      - SERILOG__WRITETO__2__NAME=Seq
+      - SERILOG__WRITETO__2__ARGS__SERVERURL=http://seq:5341
+      # Se usar API Key no Seq, descomente a linha abaixo e crie a chave no Seq UI
+      # - SERILOG__WRITETO__2__ARGS__APIKEY=SEU_API_KEY
+    expose:
+      - "8080"  # Porta interna do container da API .NET
+    depends_on:
+      - seq
+
+  dashboard:
+    image: d34tecnologia/cleaners-dashboard
+    container_name: cleaners-dashboard
+    restart: always
+    expose:
+      - "80"   # Porta interna do container do SPA Angular
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro  # Certificados TLS/SSL
+    depends_on:
+      - api
+      - dashboard
+      - seq
+
+  seq:
+    image: datalust/seq:latest
+    container_name: seq
+    restart: always
+    environment:
+      - ACCEPT_EULA=Y
+      # >>> Defina a senha inicial do admin (1ª execução)
+      - SEQ_FIRSTRUN_ADMINPASSWORD=cleaners1235
+      # >>> Como você publica a UI em /logs, ajuste a base URI
+      - BASEURI=/logs/
+      # (opcional, deixa explícito)
+      - LISTENINGURIS=http://0.0.0.0:80
+    volumes:
+      - ./seq-data:/data  # persistência
+    expose:
+      - "80"    # UI do Seq (usaremos via Nginx)
+      - "5341"  # Ingestão de logs (HTTP)

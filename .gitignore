@@ -1,0 +1,18 @@
+# Arquivos a serem ignorados no versionamento
+.bash_history
+.bashrc
+.cloud-locale-test.skip
+.gitconfig
+.lesshst
+.rofile
+.viminfo
+.wget-hsts
+.profile
+
+# Pasta de log
+seq-data/
+
+# Cache do servidor
+.cache/
+
+snap/
