@@ -1,0 +1,22 @@
+- name: Configure Base Host with Docker and Nginx
+  hosts: all
+  become: yes
+
+  vars:
+    domain_name_var: "default.com"        # Passar via pipeline
+    certbot_email: "email@example.com"    # Passar via pipeline
+    app_port: 8080                        # Porta padrão caso nenhuma seja definida
+
+  pre_tasks:
+    - name: Validar variáveis obrigatórias
+      assert:
+        that:
+          - domain_name_var is defined
+          - certbot_email is defined
+          - app_port is defined
+        fail_msg: "As variáveis domain_name_var, certbot_email e app_port devem ser definidas."
+
+  roles:
+    - common
+    - docker
+    - nginx

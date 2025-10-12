@@ -1,0 +1,4 @@
+ansible_docker_host: "unix:///var/run/docker.sock"
+docker_host: "unix:///var/run/docker.sock"
+ansible_python_interpreter: /usr/bin/python3
+

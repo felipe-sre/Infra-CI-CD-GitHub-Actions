@@ -1,0 +1,24 @@
+apps:
+  - name: landing-page
+    # O nome da imagem no DigitalOcean Container Registry
+    image_name: "landing-page"
+    route: "/"
+    internal_port: 80
+    host_port: 8081
+
+  #- name: my-api-service
+  #  # O nome da imagem no DigitalOcean Container Registry
+  #  image_name: "my-api-service"
+  #  route: "/api/"
+  #  internal_port: 5000
+  #  host_port: 8082
+
+
+  #- name: my-api-service
+  #  # O nome da imagem no DigitalOcean Container Registry
+  #  image_name: "my-api-service"
+  #  route: "//"
+  #  internal_port: 5000
+  #  host_port: 8083
+
+  # teste

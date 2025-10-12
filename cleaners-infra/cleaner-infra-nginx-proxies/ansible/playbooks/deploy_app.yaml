@@ -1,0 +1,57 @@
+# Arquivo: deploy_app.yml
+---
+- name: Deploy Docker Application
+  hosts: all
+  become: yes
+
+  vars_files:
+    - ../../../apps.yaml
+
+  vars:
+    ansible_docker_host: "unix:///var/run/docker.sock"
+
+  tasks:
+    - name: "Definir dados da aplicação a ser implantada"
+      ansible.builtin.set_fact:
+        current_app: "{{ apps | selectattr('name', '==', app_to_deploy) | first }}"
+    
+    - name: "Falhar se a aplicação não for encontrada"
+      ansible.builtin.fail:
+        msg: "A aplicação '{{ app_to_deploy }}' não foi encontrada no arquivo apps.yaml."
+      when: current_app is not defined
+
+    - name: "Login no container registry da DigitalOcean"
+      community.docker.docker_login:
+        registry_url: registry.digitalocean.com
+        username: "{{ lookup('env', 'DOCKER_USERNAME') }}"
+        password: "{{ lookup('env', 'DOCKER_PASSWORD') }}"
+      environment:
+        DOCKER_HOST: "{{ ansible_docker_host }}"
+
+    - name: "Parar e remover qualquer contêiner usando a porta {{ current_app.host_port }}"
+      ansible.builtin.shell: |
+        cid=$(docker ps -q --filter "publish={{ current_app.host_port }}")
+        if [ -n "$cid" ]; then
+          docker rm -f $cid
+        fi
+      environment:
+        DOCKER_HOST: "{{ ansible_docker_host }}"
+      ignore_errors: true
+
+    - name: "Puxar a nova imagem do registry"
+      community.docker.docker_image:
+        name: "{{ lookup('env', 'FULL_IMAGE_PATH') }}"
+        source: pull
+      environment:
+        DOCKER_HOST: "{{ ansible_docker_host }}"
+
+    - name: "Rodar o novo contêiner"
+      community.docker.docker_container:
+        name: "{{ current_app.name }}"
+        image: "{{ lookup('env', 'FULL_IMAGE_PATH') }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ current_app.host_port }}:{{ current_app.internal_port }}"
+      environment:
+        DOCKER_HOST: "{{ ansible_docker_host }}"

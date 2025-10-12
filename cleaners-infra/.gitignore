@@ -1,0 +1,31 @@
+# Arquivos de estado e backups
+# *.tfstate
+# *.tfstate.*
+# *.tfstate.backup
+# *.tfvars.sig
+
+# Diretórios de plugins e módulos baixados
+# .terraform/
+
+# Dados de crash (gerados em caso de falha do Terraform)
+# crash.log
+
+# Arquivos de segredos (se não estiverem em .tfvars.sig ou gerenciados de outra forma)
+# Se você usa arquivos .tfvars para segredos, é crucial adicioná-los aqui!
+# Exemplo:
+# secrets.tfvars
+
+# Arquivos de auto-complete do CLI (geralmente gerados por scripts)
+# .terraformrc
+# terraform.rc
+
+# Bloqueios de dependência (opcional, dependendo da sua estratégia)
+# Se você quiser que o .terraform.lock.hcl seja versionado para garantir versões de provedores,
+# não o inclua aqui. Caso contrário, se cada dev for resolver suas próprias dependências, pode incluir.
+# .terraform.lock.hcl
+
+# Diretórios específicos de provedores (se gerados fora de .terraform/)
+# provider_name_vX.Y.Z/
+
+# Ignorar o ambiente virtual do Python (venv)
+# .venv_ansible/ 

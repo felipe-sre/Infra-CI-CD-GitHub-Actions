@@ -1,0 +1,55 @@
+- name: "Instalar Nginx e Certbot"
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - certbot
+      - python3-certbot-nginx
+    state: present
+    update_cache: yes
+
+- name: "Remover site default do Nginx"
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload Nginx
+
+- name: "Criar diretório para Let's Encrypt se não existir"
+  ansible.builtin.file:
+    path: /etc/letsencrypt
+    state: directory
+    mode: '0755'
+
+- name: "Gerar arquivo dhparams.pem para Certbot (pode levar um tempo)"
+  ansible.builtin.command: openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+  args:
+    creates: /etc/letsencrypt/ssl-dhparams.pem
+
+- name: "Copiar template de configuração do Nginx"
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "/etc/nginx/sites-available/{{ domain_name_var }}"
+  notify: Reload Nginx
+
+- name: "Habilitar a configuração do site"
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ domain_name_var }}"
+    dest: "/etc/nginx/sites-enabled/{{ domain_name_var }}"
+    state: link
+  notify: Reload Nginx
+
+- name: "Obter certificado SSL com Certbot"
+  ansible.builtin.command: >
+    certbot --nginx -d {{ domain_name_var }}
+    --non-interactive --agree-tos -m {{ certbot_email }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ domain_name_var }}/fullchain.pem"
+
+- name: "Remover site default do Nginx (disponível)"
+  ansible.builtin.file:
+    path: /etc/nginx/sites-available/default
+    state: absent
+
+- name: "Remover site default do Nginx (habilitado)"
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
