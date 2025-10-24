@@ -1,6 +1,6 @@
 - name: Configure Base Host with Docker and Nginx
   hosts: all
-  become: yes
+  become: true
 
   vars:
     domain_name_var: "default.com"        # Passar via pipeline

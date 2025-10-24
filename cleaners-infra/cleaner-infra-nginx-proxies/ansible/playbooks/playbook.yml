@@ -1,0 +1,35 @@
+- name: Configurar Droplet da Aplicacao
+  hosts: webservers
+  become: true
+  
+  vars:
+    app_user: devops
+
+    certbot_email: "lucasoliveira@d34.com.br"
+
+    domain: "d34.com.br"
+    subdomains: ["geo", "short"]
+
+    app_internal_host: "127.0.0.1"
+    app_internal_port: 8080
+    app_port: 8080
+
+  handlers:
+    - name: Restart UFW
+      service:
+        name: ufw
+        state: restarted
+      listen: Restart UFW
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+      listen: Restart Nginx
+
+  roles: 
+    - role: common
+      tags: security
+
+    - role: nginx
+      tags: webserver

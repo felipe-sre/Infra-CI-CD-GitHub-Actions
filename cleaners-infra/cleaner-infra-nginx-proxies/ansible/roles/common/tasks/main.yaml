@@ -1,0 +1,64 @@
+- name: 1.1 - Atualizar cache do APT e instalar pacotes comuns
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+      - python3-pip
+      - ufw 
+    state: present
+    update_cache: yes
+
+- name: 2.1 - Criar o usuário não-root '{{ app_user }}'
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    state: present
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+    
+- name: 2.2 - Garantir que a pasta .ssh exista
+  ansible.builtin.file:
+    path: "/home/{{ app_user }}/.ssh"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0700'
+  
+- name: 2.3 - Injetar chave SSH do PC local para o usuário {{ app_user }}
+  ansible.posix.authorized_key:
+    user: "{{ app_user }}"
+    state: present
+    key: "{{ lookup('file', '~/.ssh/authorized_keys') }}"
+    exclusive: no
+
+- name: 2.4 - Configurar sudo NOPASSWD para o usuário {{ app_user }}
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/{{ app_user }}
+    create: yes
+    line: "{{ app_user }} ALL=(ALL) NOPASSWD: ALL"
+    validate: /usr/sbin/visudo -cf %s
+    mode: '0440'
+
+- name: 3.1 - Definir políticas padrão do UFW (Negar entrada/Permitir saída)
+  community.general.ufw:
+    policy: "{{ item.policy }}"
+    direction: "{{ item.direction }}"
+  loop:
+    - { direction: 'incoming', policy: 'deny' }
+    - { direction: 'outgoing', policy: 'allow' }
+
+- name: 3.2 - Permitir tráfego essencial (SSH, HTTP, HTTPS)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - '22'
+    - '80'
+    - '443'
+
+- name: 3.3 - Ativar UFW (sem interação manual)
+  community.general.ufw:
+    state: enabled

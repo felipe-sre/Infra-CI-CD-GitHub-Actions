@@ -1,0 +1,31 @@
+{
+  "version": 4,
+  "terraform_version": "1.13.4",
+  "serial": 27,
+  "lineage": "1a0bf99b-cdf7-4cdc-6433-1fe11cfc2831",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "digitalocean_domain",
+      "name": "main",
+      "provider": "provider[\"registry.terraform.io/digitalocean/digitalocean\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "d34.com.br",
+            "ip_address": null,
+            "name": "d34.com.br",
+            "ttl": 1800,
+            "urn": "do:domain:d34.com.br"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjAifQ=="
+        }
+      ]
+    }
+  ],
+  "check_results": null
+}

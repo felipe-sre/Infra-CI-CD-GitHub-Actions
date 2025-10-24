@@ -1,4 +1,4 @@
-- name: "Instalar Nginx e Certbot"
+- name: "Instalar Nginx e Python Certbot"
   ansible.builtin.apt:
     name:
       - nginx
@@ -11,45 +11,63 @@
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
     state: absent
-  notify: Reload Nginx
-
-- name: "Criar diretório para Let's Encrypt se não existir"
-  ansible.builtin.file:
-    path: /etc/letsencrypt
-    state: directory
-    mode: '0755'
-
-- name: "Gerar arquivo dhparams.pem para Certbot (pode levar um tempo)"
-  ansible.builtin.command: openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
-  args:
-    creates: /etc/letsencrypt/ssl-dhparams.pem
-
-- name: "Copiar template de configuração do Nginx"
-  ansible.builtin.template:
-    src: nginx.conf.j2
-    dest: "/etc/nginx/sites-available/{{ domain_name_var }}"
-  notify: Reload Nginx
-
-- name: "Habilitar a configuração do site"
-  ansible.builtin.file:
-    src: "/etc/nginx/sites-available/{{ domain_name_var }}"
-    dest: "/etc/nginx/sites-enabled/{{ domain_name_var }}"
-    state: link
-  notify: Reload Nginx
-
-- name: "Obter certificado SSL com Certbot"
-  ansible.builtin.command: >
-    certbot --nginx -d {{ domain_name_var }}
-    --non-interactive --agree-tos -m {{ certbot_email }}
-  args:
-    creates: "/etc/letsencrypt/live/{{ domain_name_var }}/fullchain.pem"
+  notify: Restart Nginx
 
 - name: "Remover site default do Nginx (disponível)"
   ansible.builtin.file:
     path: /etc/nginx/sites-available/default
     state: absent
 
-- name: "Remover site default do Nginx (habilitado)"
+- name: "Criar diretório para o Certbot challenge"
   ansible.builtin.file:
-    path: /etc/nginx/sites-enabled/default
-    state: absent
+    path: /var/www/certbot
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /var/www/certbot
+    - /etc/letsencrypt
+
+- name: "Gerar arquivo dhparams.pem para Certbot (pode levar um tempo)"
+  ansible.builtin.command: openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+  args:
+    creates: /etc/letsencrypt/ssl-dhparams.pem
+
+- name: "Configurar Nginx usando o template proxy"
+  ansible.builtin.template:
+    src: nginx_proxy.j2   
+    dest: /etc/nginx/sites-available/app_proxy.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Nginx
+
+- name: "Habilitar a configuração do site"
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/app_proxy.conf
+    dest: /etc/nginx/sites-enabled/app_proxy.conf
+    state: link
+  notify: Restart Nginx
+
+- name: "Gerar certificados TLS via Certbot"
+  ansible.builtin.command: >
+    certbot --nginx -n --agree-tos 
+    -m {{ certbot_email }} 
+    {% for sub in subdomains %}-d {{ sub }}.{{ domain }} {% endfor %}
+  args:
+    creates: /etc/letsencrypt/live/{{ subdomains[0] }}.{{ domain }}/fullchain.pem
+
+- name: "Testar e reiniciar Nginx para garantir a configuração HTTP"
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+
+- name: 4.1 - Garantir que o serviço Certbot Timer está ativo para renovação
+  ansible.builtin.service:
+    name: certbot.timer
+    state: started
+    enabled: yes
+
+
+

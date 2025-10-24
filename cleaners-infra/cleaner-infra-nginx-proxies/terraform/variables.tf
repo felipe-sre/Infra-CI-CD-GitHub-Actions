@@ -5,6 +5,13 @@ variable "domain_name" {
     type = string 
     default = "d34.com.br"
 }
+
+variable "subdomains" {
+  description = "Lista de subdomínios a serem criados (ex: geo, short, api, app)."
+  type        = list(string)
+  default     = ["geo", "short"]
+}
+
 variable "ssh_key_name" { 
     type = string 
 
@@ -32,4 +39,10 @@ variable "droplet_size" {
   description = "The slug for the Droplet size."
   type        = string
   default     = "s-1vcpu-1gb"
+}
+
+variable "project_name_prefix" {
+  description = "Prefixo usado para nomear recursos como Droplets e Databases (deve usar hífens, não sublinhados)."
+  type        = string
+  default     = "app-server"
 }

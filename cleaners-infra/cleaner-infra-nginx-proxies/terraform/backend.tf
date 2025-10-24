@@ -1,13 +1,16 @@
-terraform {
-  backend "s3" {
-    endpoints                    = {
-      s3 = "https://nyc3.digitaloceanspaces.com"
-    }
-    region                      = "us-east-1"
-    bucket                      = "infrangninxreverseproxyd34"
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    key                         = "infra-nginx-proxies/default/terraform.tfstate"
-    skip_requesting_account_id  = true
-  }
-}
+# terraform {
+#   backend "s3" {
+#     endpoints                    = {
+#       s3 = "https://nyc3.digitaloceanspaces.com"
+#     }
+#     region                      = "us-east-1"
+#     bucket                      = "infra-cleaner-d34"
+#     key                         = "infra-cleaner-d34/default/terraform.tfstate"
+#     skip_credentials_validation = true
+#     skip_metadata_api_check     = true
+#     skip_requesting_account_id  = true
+#     skip_region_validation      = true
+#     use_path_style           = true
+#   }
+# }
+
