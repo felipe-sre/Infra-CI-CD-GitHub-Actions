@@ -6,6 +6,7 @@ terraform {
     }
   }
 }
+
 resource "digitalocean_firewall" "web_fw" {
   name = "${var.name_prefix}-fw"
   tags = [var.tag_name]

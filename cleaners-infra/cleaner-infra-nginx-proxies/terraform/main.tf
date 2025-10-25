@@ -19,10 +19,8 @@ module "firewall" {
   tag_name    = local.tag_name
 }
 
-# Se você deseja que o domínio raiz aponte para o Droplet, descomente 'ip_address'.
 data "digitalocean_domain" "main" {
   name       = var.domain_name
-  # ip_address = digitalocean_droplet.app_server.ipv4_address 
 }
 
 resource "digitalocean_record" "domain_a_record" {
@@ -52,4 +50,5 @@ resource "digitalocean_droplet" "app_server" {
   image  = "ubuntu-22-04-x64"                                  
   size   = "s-1vcpu-1gb"                               
   ssh_keys = [data.digitalocean_ssh_key.default.id]
+  tags = ["webservers"]
 }

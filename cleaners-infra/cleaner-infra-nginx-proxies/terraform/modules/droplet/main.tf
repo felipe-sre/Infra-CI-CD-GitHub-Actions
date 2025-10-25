@@ -6,6 +6,7 @@ terraform {
     }
   }
 }
+
 resource "digitalocean_droplet" "web_node" {
   count    = var.droplet_count
   image    = "ubuntu-22-04-x64"
