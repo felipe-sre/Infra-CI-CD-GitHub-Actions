@@ -9,10 +9,11 @@
       - ufw 
     state: present
     update_cache: yes
-    register: apt_status
-    until: apt_status is succeeded
-    retries: 5 
-    delay: 10
+
+  register: apt_status
+  until: apt_status is succeeded
+  retries: 5 
+  delay: 10
 
 - name: 2.1 - Criar o usuário não-root '{{ app_user }}'
   ansible.builtin.user:
