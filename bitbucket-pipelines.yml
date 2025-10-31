@@ -40,6 +40,7 @@ pipelines:
             - apt update && apt install -y curl git sshpass 
             - export ANSIBLE_HOST_KEY_CHECKING=False 
             - pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+            - export PATH="$HOME/.local/bin:$PATH"
             - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
             - ls -ld .
             - |
