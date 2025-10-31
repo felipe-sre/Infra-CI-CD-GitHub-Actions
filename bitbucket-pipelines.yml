@@ -29,6 +29,26 @@ pipelines:
             - terraform workspace select staging
             - terraform apply -auto-approve "tfplan.out"
 
+    reconfigure-nginx: &reconfigure
+      - variables:
+          - name: DOMAIN_NAME
+          - name: CERTBOT_EMAIL
+      - step:
+          name: "Reconfigurar Nginx/SSL"
+          image: python:3.11
+          script:
+            - apt-get update && apt-get install -y curl git sshpass python3-venv
+            - python3 -m venv venv
+            - source venv/bin/activate
+            - pip install --no-cache-dir ansible==9.4.0 docker==6.1.3 community.digitalocean
+            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
+            - cd cleaners-infra/cleaner-infra-nginx-proxies/
+            - ansible-playbook \
+                -i ansible/digitalocean.yaml \
+                ansible/playbooks/playbook.yml \
+                --limit app-server \
+                --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
+    
     deploy-app: &deploy
       - variables:
           - name: APP_NAME
@@ -50,32 +70,9 @@ pipelines:
             - chmod 755 .
             - echo "Verificando droplets disponíveis..."
             - ansible-inventory -i digitalocean.yaml --list
-            - ansible-playbook playbooks/deploy_app.yaml \
-                -i digitalocean.yaml \
-                --limit app-server \
-                --user root \
-                --private-key ~/.ssh/ansible_ssh_key \
-                --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
-
-    reconfigure-nginx: &reconfigure
-      - variables:
-          - name: DOMAIN_NAME
-          - name: CERTBOT_EMAIL
-      - step:
-          name: "Reconfigurar Nginx/SSL"
-          image: python:3.11
-          script:
-            - apt-get update && apt-get install -y curl git sshpass python3-venv
-            - python3 -m venv venv
-            - source venv/bin/activate
-            - pip install --no-cache-dir ansible==9.4.0 docker==6.1.3 community.digitalocean
-            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/
-            - ansible-playbook \
-                -i ansible/digitalocean.yaml \
-                ansible/playbooks/playbook.yml \
-                --limit app-server \
-                --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
+            - echo "--- Executando Ansible Playbook ---"
+              ansible-playbook playbooks/deploy_app.yaml -i digitalocean.yaml --limit app-server --user root --private-key ~/.ssh/ansible_ssh_key --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"              
+              echo "--- Ansible Playbook Concluído ---"
 
   staging-deploy:
     - step: *plan
