@@ -1,83 +1,108 @@
 image: hashicorp/terraform:1.4.6
 
-pipelines:
-  custom:
-
-    terraform-plan-staging: &plan
-      - step:
-          name: Terraform Plan (Staging)
-          script:
-            - cd terraform/
-            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
-            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
-            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
-            - terraform init -reconfigure
-            - terraform workspace select staging || terraform workspace new staging
-            - terraform plan -var-file="environments/staging.tfvars" -out=tfplan.out
-          artifacts:
-            - terraform/tfplan.out
-
-    terraform-apply-staging: &apply
-      - step:
-          name: Terraform Apply (Staging)
-          script:
-            - cd terraform/
-            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
-            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
-            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
-            - terraform init -reconfigure
-            - terraform workspace select staging
-            - terraform apply -auto-approve "tfplan.out"
-
-    reconfigure-nginx: &reconfigure
-      - variables:
-          - name: DOMAIN_NAME
-          - name: CERTBOT_EMAIL
-      - step:
-          name: "Reconfigurar Nginx/SSL"
-          image: python:3.11
-          script:
-            - apt-get update && apt-get install -y curl git sshpass python3-venv
-            - python3 -m venv venv
-            - source venv/bin/activate
-            - pip install --no-cache-dir ansible==9.4.0 docker==6.1.3 community.digitalocean
-            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/
-            - ansible-playbook \
-                -i ansible/digitalocean.yaml \
-                ansible/playbooks/playbook.yml \
-                --limit app-server \
-                --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
+definitions:
+  steps:
     
-    deploy-app: &deploy
-      - variables:
+    - step: &plan
+        name: Terraform Plan (Staging)
+        script:
+          - cd cleaners-infra/cleaner-infra-nginx-proxies/terraform
+          - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
+          - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
+          - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
+          - terraform init -reconfigure
+          - terraform workspace select staging || terraform workspace new staging
+          - terraform plan -var-file="../environments/staging.tfvars" -out=tfplan.out
+        artifacts:
+          - cleaners-infra/cleaner-infra-nginx-proxies/terraform/tfplan.out
+
+    - step: &apply
+        name: Terraform Apply (Staging)
+        trigger: manual 
+        script:
+          - cd cleaners-infra/cleaner-infra-nginx-proxies/terraform
+          - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
+          - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
+          - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
+          - terraform init -reconfigure
+          - terraform workspace select staging
+          - terraform apply -auto-approve "tfplan.out"
+
+    - step: &reconfigure
+        name: "Configurar Host (Nginx + Docker + SSL)"
+        image: python:3.12
+        script:
+          - |
+            apt-get update && apt-get install -y curl git sshpass python3-venv                       
+            python3 -m venv venv
+            source venv/bin/activate                      
+            pip install ansible==9.4.0 docker==6.1.3 python-digitalocean                      
+            ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml                      
+            mkdir -p ~/.ssh
+            echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key                     
+            export DO_TOKEN=$DO_API_TOKEN
+            cd cleaners-infra/cleaner-infra-nginx-proxies/ansible            
+            echo "--- Executando Playbook de Configuração (configure_host.yaml) ---"
+            ansible-playbook \
+              playbooks/configure_host.yaml \
+              -i digitalocean.yaml \
+              --limit app-server \
+              --user root \
+              --private-key ~/.ssh/ansible_ssh_key \
+              --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL} app_port=8080"
+
+    - step: &deploy
+        name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
+        image: python:3.12
+        variables:
           - name: APP_NAME
-            default: "cleaners-web-app"
+            default: "landing-page" # Puxado do apps.yaml
           - name: IMAGE_TAG
             default: "latest"
-      - step:
-          name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
-          image: python:3.12
-          script:
-            - apt-get update && apt-get install -y curl git sshpass python3-venv
-            - python3 -m venv venv
-            - source venv/bin/activate
-            - pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
-            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
-            - mkdir -p ~/.ssh
-            - echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
-            - chmod 755 .
-            - echo "Verificando droplets disponíveis..."
-            - ansible-inventory -i digitalocean.yaml --list
-            - echo "--- Executando Ansible Playbook ---"
-              ansible-playbook playbooks/deploy_app.yaml -i digitalocean.yaml --limit app-server --user root --private-key ~/.ssh/ansible_ssh_key --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"              
-              echo "--- Ansible Playbook Concluído ---"
+        script:
+          - |
+            apt-get update && apt-get install -y curl git sshpass python3-venv
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+            ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
+            mkdir -p ~/.ssh
+            echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
+            export DO_TOKEN=$DO_API_TOKEN
+            export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
+            cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            echo "--- Executando Playbook de Deploy (deploy_app.yaml) ---"
+            ansible-playbook \
+              playbooks/deploy_app.yaml \
+              -i digitalocean.yaml \
+              --limit app-server \
+              --user root \
+              --private-key ~/.ssh/ansible_ssh_key \
+              --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
 
-  staging-deploy:
-    - step: *plan
-    - step: *apply
-    - step: *reconfigure
-    - step: *deploy
-    
+pipelines:
+  # Pipeline Completo (Manual)
+  custom:
+    staging-deploy:
+      - step: *plan
+      - step: *apply
+      - step: *reconfigure
+      - step: *deploy
 
+    # Depuração
+    terraform-plan-staging:
+      - step: *plan
+    terraform-apply-staging:
+      - step: *apply
+    reconfigure-nginx:
+      - step: *reconfigure
+    deploy-app:
+      - step: *deploy
+
+  # Pipeline Automático (ao fazer merge na 'main', por ex.)
+  # branches:
+  #   main:
+  #     - step: *plan
+  #     - step: *apply
+  #     - step: *reconfigure
+  #     - step: *deploy
