@@ -33,3 +33,5 @@
 
     - role: nginx
       tags: webserver
+
+    - role: docker  

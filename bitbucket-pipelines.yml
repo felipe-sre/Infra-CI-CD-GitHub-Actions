@@ -40,12 +40,12 @@ pipelines:
             - apt update && apt install -y curl git sshpass 
             - export ANSIBLE_HOST_KEY_CHECKING=False 
             - pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
-            - ansible-galaxy collection install -r cleaner-infra-nginx-proxies/ansible/requirements.yml
+            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
             - export DO_TOKEN=$DO_API_TOKEN
             - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
             - ansible-playbook \
-                -i ansible/digitalocean.yaml \
-                ansible/playbooks/deploy_app.yaml \
+                -i cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
+                cleaners-infra/cleaner-infra-nginx-proxies/ansible/playbooks/deploy_app.yaml \
                 --limit app-server \
                 --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
     
@@ -60,10 +60,10 @@ pipelines:
             - apt update && apt install -y curl git sshpass
             - export ANSIBLE_HOST_KEY_CHECKING=False
             - pip install ansible==9.4.0 docker==6.1.3 community.digitalocean
-            - ansible-galaxy collection install -r ansible/requirements.yml            
+            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml            
             - export DO_TOKEN=$DO_API_TOKEN             
             - ansible-playbook \
-                -i ansible/digitalocean.yaml \
-                ansible/playbooks/configure_host.yml \
+                -i cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
+                cleaners-infra/cleaner-infra-nginx-proxies/ansible/playbooks/playbook.yml \
                 --limit app-server \
                 --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
