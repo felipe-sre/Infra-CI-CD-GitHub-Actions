@@ -55,8 +55,8 @@ pipelines:
             - export DO_TOKEN=$DO_API_TOKEN
             - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
             - export ANSIBLE_ROLES_PATH=./cleaners-infra/cleaner-infra-nginx-proxies/ansible/roles
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
-            - ansible-playbook \
+            - cd cleaners-infra/cleaner-infra-nginx-proxies/ansible && \
+              ansible-playbook \
                 playbooks/deploy_app.yaml \
                 -i digitalocean.yaml \
                 --limit app-server \
