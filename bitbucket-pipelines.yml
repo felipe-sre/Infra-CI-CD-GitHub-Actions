@@ -2,32 +2,34 @@ image: hashicorp/terraform:1.4.6
 
 pipelines:
   custom:
-  
-    terraform-plan-staging:
+
+    terraform-plan-staging: &plan
       - step:
           name: Terraform Plan (Staging)
           script:
             - cd terraform/
             - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
-            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY 
+            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
             - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
             - terraform init -reconfigure
-            - terraform workspace select staging
+            - terraform workspace select staging || terraform workspace new staging
             - terraform plan -var-file="environments/staging.tfvars" -out=tfplan.out
+          artifacts:
+            - terraform/tfplan.out
 
-    terraform-apply-staging:
+    terraform-apply-staging: &apply
       - step:
           name: Terraform Apply (Staging)
           script:
             - cd terraform/
-            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN 
-            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY 
+            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
+            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
             - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
             - terraform init -reconfigure
             - terraform workspace select staging
-            - terraform apply "tfplan.out"
+            - terraform apply -auto-approve "tfplan.out"
 
-    deploy-app:
+    deploy-app: &deploy
       - variables:
           - name: APP_NAME
             default: "cleaners-web-app"
@@ -35,49 +37,27 @@ pipelines:
             default: "latest"
       - step:
           name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
-          image: python:3.12 
+          image: python:3.12
           script:
-            - |
-              apt update && apt install -y curl git sshpass
-              export ANSIBLE_HOST_KEY_CHECKING=False              
-              pip install ansible==9.4.0 docker==6.1.3 python-digitalocean              
-              export PATH="$HOME/.local/bin:$PATH"              
-              ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
-              
-              echo "--- Verificando DO_API_TOKEN ---"
-              if [ -z "$DO_API_TOKEN" ]; then
-                echo "ERRO: A variável DO_API_TOKEN não está definida no Bitbucket Secrets."
-                exit 1
-              else
-                echo "DO_API_TOKEN está presente (OK)."
-              fi
-              echo "--- Verificação de Token concluída ---"
-
-              echo "--- Configurando Chave SSH ---"
-              mkdir -p ~/.ssh
-              echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key
-              chmod 600 ~/.ssh/ansible_ssh_key
-              echo "Chave SSH configurada."
-              
-              export DO_TOKEN=$DO_API_TOKEN
-              export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"              
-              
-              export ANSIBLE_ROLES_PATH=./cleaners-infra/cleaner-infra-nginx-proxies/ansible/roles
-              
-              cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
-              
-              echo "--- Executando Ansible Playbook ---"
-              ansible-playbook \
-                playbooks/deploy_app.yaml \
+            - apt-get update && apt-get install -y curl git sshpass python3-venv
+            - python3 -m venv venv
+            - source venv/bin/activate
+            - pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
+            - mkdir -p ~/.ssh
+            - echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
+            - cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            - chmod 755 .
+            - echo "Verificando droplets disponíveis..."
+            - ansible-inventory -i digitalocean.yaml --list
+            - ansible-playbook playbooks/deploy_app.yaml \
                 -i digitalocean.yaml \
                 --limit app-server \
                 --user root \
                 --private-key ~/.ssh/ansible_ssh_key \
-                --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
-              
-              echo "--- Ansible Playbook Concluído ---"
-    
-    reconfigure-nginx:
+                --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
+
+    reconfigure-nginx: &reconfigure
       - variables:
           - name: DOMAIN_NAME
           - name: CERTBOT_EMAIL
@@ -85,14 +65,22 @@ pipelines:
           name: "Reconfigurar Nginx/SSL"
           image: python:3.11
           script:
-            - apt update && apt install -y curl git sshpass
-            - export ANSIBLE_HOST_KEY_CHECKING=False
-            - pip install ansible==9.4.0 docker==6.1.3 community.digitalocean
-            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml            
-            - export DO_TOKEN=$DO_API_TOKEN
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/            
+            - apt-get update && apt-get install -y curl git sshpass python3-venv
+            - python3 -m venv venv
+            - source venv/bin/activate
+            - pip install --no-cache-dir ansible==9.4.0 docker==6.1.3 community.digitalocean
+            - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
+            - cd cleaners-infra/cleaner-infra-nginx-proxies/
             - ansible-playbook \
                 -i ansible/digitalocean.yaml \
                 ansible/playbooks/playbook.yml \
                 --limit app-server \
                 --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
+
+  staging-deploy:
+    - step: *plan
+    - step: *apply
+    - step: *reconfigure
+    - step: *deploy
+    
+

@@ -1,12 +1,10 @@
 - name: Deploy Docker Application
   hosts: app-server
+  gather_facts: false
   become: true
 
-  roles:
-    - role: docker
-
   vars_files:
-    - ../../../apps.yaml
+    - ../../apps.yaml
 
   vars:
     ansible_docker_host: "unix:///var/run/docker.sock"

@@ -26,14 +26,27 @@
     group: "{{ app_user }}"
     mode: '0700'
   
-- name: 2.3 - Injetar chave SSH do PC local para o usuário {{ app_user }}
+# - name: 2.3 - Injetar chave SSH do PC local para o usuário {{ app_user }}
+#   ansible.posix.authorized_key:
+#     user: "{{ app_user }}"
+#     state: present
+#     key: "{{ lookup('file', '~/.ssh/authorized_keys.pub') }}" # Adicione o caminho para a sua chave pública.
+#     exclusive: no
+
+- name: 2.3 - Ler a chave SSH pública do usuário root (no Droplet)
+  ansible.builtin.slurp:
+    src: /root/.ssh/authorized_keys
+  register: root_ssh_key
+  when: app_user != "root"
+
+- name: 2.4 - Autorizar a mesma chave SSH para o usuário {{ app_user }}
   ansible.posix.authorized_key:
     user: "{{ app_user }}"
     state: present
-    key: "{{ lookup('file', '~/.ssh/authorized_keys.pub') }}" # Adicione o caminho para a sua chave pública.
-    exclusive: no
+    key: "{{ root_ssh_key.content | b64decode }}"
+  when: app_user != "root" and root_ssh_key.content is defined
 
-- name: 2.4 - Configurar sudo NOPASSWD para o usuário {{ app_user }}
+- name: 2.5 - Configurar sudo NOPASSWD para o usuário {{ app_user }}
   ansible.builtin.lineinfile:
     path: /etc/sudoers.d/{{ app_user }}
     create: yes
