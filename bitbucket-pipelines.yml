@@ -52,7 +52,7 @@ definitions:
               --limit app-server \
               --user root \
               --private-key ~/.ssh/ansible_ssh_key \
-              --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL} app_port=8080"
+              --extra-vars "domain=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL} app_port=8080"
 
     - step: &deploy
         name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
