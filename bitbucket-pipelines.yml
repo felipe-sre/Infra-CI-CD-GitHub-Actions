@@ -52,6 +52,12 @@ pipelines:
                 echo "DO_API_TOKEN está presente (OK)."
               fi
               echo "--- Verificação de Token concluída ---"
+
+              echo "--- Configurando Chave SSH ---"
+              mkdir -p ~/.ssh
+              echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key
+              chmod 600 ~/.ssh/ansible_ssh_key
+              echo "Chave SSH configurada."
               
               export DO_TOKEN=$DO_API_TOKEN
               export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"              
@@ -65,6 +71,8 @@ pipelines:
                 playbooks/deploy_app.yaml \
                 -i digitalocean.yaml \
                 --limit app-server \
+                --user root \
+                --private-key ~/.ssh/ansible_ssh_key \
                 --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
               
               echo "--- Ansible Playbook Concluído ---"
