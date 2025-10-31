@@ -44,8 +44,8 @@ pipelines:
             - export DO_TOKEN=$DO_API_TOKEN
             - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
             - ansible-playbook \
-                -i cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
                 cleaners-infra/cleaner-infra-nginx-proxies/ansible/playbooks/deploy_app.yaml \
+                -i cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
                 --limit app-server \
                 --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
     
