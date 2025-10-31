@@ -43,11 +43,11 @@ pipelines:
             - ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
             - export DO_TOKEN=$DO_API_TOKEN
             - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
-            - cd cleaners-infra/cleaner-infra-nginx-proxies/
-            - ansible-playbook \
-                ansible/playbooks/deploy_app.yaml \
-                -i ansible/digitalocean.yaml \
-                --limit app-server \
+            - cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            - ansible-playbook
+                playbooks/deploy_app.yaml 
+                -i digitalocean.yaml 
+                --limit app-server 
                 --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
     
     reconfigure-nginx:
