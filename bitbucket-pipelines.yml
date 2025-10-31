@@ -35,7 +35,7 @@ pipelines:
             default: "latest"
       - step:
           name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
-          image: python:3.11 
+          image: python:3.12 
           script:
             - apt update && apt install -y curl git sshpass 
             - export ANSIBLE_HOST_KEY_CHECKING=False 
