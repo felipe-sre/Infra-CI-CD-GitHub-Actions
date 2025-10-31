@@ -4,7 +4,7 @@ apps:
     image_name: "landing-page"
     route: "/"
     internal_port: 80
-    host_port: 8081
+    host_port: 8080
 
   #- name: my-api-service
   #  # O nome da imagem no DigitalOcean Container Registry

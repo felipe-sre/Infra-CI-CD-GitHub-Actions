@@ -1,8 +1,9 @@
-# Arquivo: deploy_app.yml
----
 - name: Deploy Docker Application
-  hosts: all
+  hosts: app-server
   become: true
+
+  roles:
+    - role: docker
 
   vars_files:
     - ../../../apps.yaml
@@ -28,15 +29,13 @@
       environment:
         DOCKER_HOST: "{{ ansible_docker_host }}"
 
-    - name: "Parar e remover qualquer contêiner usando a porta {{ current_app.host_port }}"
-      ansible.builtin.shell: |
-        cid=$(docker ps -q --filter "publish={{ current_app.host_port }}")
-        if [ -n "$cid" ]; then
-          docker rm -f $cid
-        fi
+    - name: "Parar contêiner antigo para liberar a porta"
+      community.docker.docker_container:
+        name: "{{ current_app.name }}"
+        state: absent
+      ignore_errors: true
       environment:
         DOCKER_HOST: "{{ ansible_docker_host }}"
-      ignore_errors: true
 
     - name: "Puxar a nova imagem do registry"
       community.docker.docker_image:

@@ -35,7 +35,7 @@ Roles:
 * Terraform ≥ 1.4 • Ansible ≥ 9 • Python ≥ 3.9  
 * Chave SSH pública adicionada na DigitalOcean  
 * Variáveis seguras do Bitbucket:  
-  `DO_TOKEN | DOCKER_USERNAME | DOCKER_PASSWORD | DOCKER_REPO`
+  `DO_API_TOKEN | DOCKER_USERNAME | DOCKER_PASSWORD | DOCKER_REPO`
 * Defina `usuário`, `email`, `domínio` e `subdomínio` em: ~/ansible/playbooks/playbook.yml.
 * Adicione o **caminho para sua chave pública** em (line 33): /ansible/roles/common/tasks/main.yaml
 
@@ -98,7 +98,7 @@ ansible-playbook -i digitalocean.yaml playbooks/playbook.yml --limit app-server
 
 * Use `--limit` associado ao **name** da droplet específica que o ansible irá atacar.
 * Você também poderá ver o **name** da droplet em **playbooks/playbook.yml** `hosts = name`
-* **O que acontece:** O Ansible usa o inventário dinâmico (`digitalocean.yaml`) para encontrar o IP do Droplet com a tag correta (definida no Terraform - ex.: env:staging & app-server). Em seguida, executa as roles `common` → `docker` → `nginx`. Remove o site default do Nginx, gera os certificados SSL via Certbot e deixa o proxy reverso pronto para a porta `app_port`.
+* **O que acontece:** O Ansible usa o inventário dinâmico (`digitalocean.yaml`) para encontrar o IP do Droplet com a tag correta (definida no Terraform - ex.: env:staging). Em seguida, executa as roles `common` → `docker` → `nginx`. Remove o site default do Nginx, gera os certificados SSL via Certbot e deixa o proxy reverso pronto para a porta `app_port`.
 * A execução deve terminar com `failed=0`.
 
 ---

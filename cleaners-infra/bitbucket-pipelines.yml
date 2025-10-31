@@ -1,83 +1,69 @@
-# Pipeline Bitbucket para Terraform + Ansible
-# Infra: Terraform v1.4.6
-# Deploy App: Ansible + Docker + DO Registry
-
-#image: hashicorp/terraform:1.4.6
-#
-#pipelines:
-#  custom:
-#    terraform-plan-master:
-#      - step:
-#          name: Terraform Plan
-#          script:
-#            - cd terraform/
-#            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
-#            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
-#            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
-#            - rm -rf .terraform/ .terraform.lock.hcl
-#            - terraform init -reconfigure
-#            - terraform plan -var-file="environments/staging.tfvars" -out=tfplan.out
-#
-#    terraform-apply-master:
-#      - step:
-#          name: Terraform Apply
-#          script:
-#            - cd terraform/
-#            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
-#            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY
-#            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
-#            - rm -rf .terraform/ .terraform.lock.hcl
-#            - terraform init -reconfigure
-#            - terraform apply -var-file="environments/staging.tfvars" tfplan.out
-#
-#    deploy-app:
-#      - step:
-#          name: "Deploy [${APP_NAME}] tag [${IMAGE_TAG}] para [${TARGET_ENV}]"
-#          image: python:3.11
-#          variables:
-#          - name: APP_NAME
-#          - name: IMAGE_TAG
-#          - name: TARGET_ENV
-#            default: "staging"
-#            allowed-values: ["staging", "production"]
-#          script:
-#            - apt update && apt install -y curl git sshpass
-#            - export ANSIBLE_HOST_KEY_CHECKING=False
-#            - pip install ansible==9.4.0 docker==6.1.3
-#            - ansible-galaxy collection install -r infra-nginx-proxies/ansible/requirements.yml
-#            - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
-#            - DOCKER_USERNAME=$DOCKER_USERNAME DOCKER_PASSWORD=$DOCKER_PASSWORD ansible-playbook -i infra-nginx-proxies/ansible/digitalocean.yaml infra-nginx-proxies/ansible/playbooks/deploy_app.yaml --limit "tag_env_${TARGET_ENV}" --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH}"
-#
-#    reconfigure-nginx:
-#      - variables:
-#          - name: TARGET_ENV
-#            default: "staging"
-#            allowed-values: ["staging", "production"]
-#          - name: DOMAIN_NAME
-#            default: "example.com"
-#          - name: CERTBOT_EMAIL
-#            default: "admin@example.com"
-#
-#      - step:
-#          name: "Reconfigurar Nginx + SSL para [${DOMAIN_NAME}]"
-#          image: python:3.9
-#          script:
-#            - apt update && apt install -y curl git sshpass
-#            - pip install ansible==9.4.0 docker==6.1.3
-#            - ansible-galaxy collection install -r infra-nginx-proxies/ansible/requirements.yml
-#            - ansible-playbook \
-#                -i infra-nginx-proxies/ansible/inventory/tag_env_${TARGET_ENV}.yml \
-#                infra-nginx-proxies/ansible/playbooks/configure_host.yml \
-#                --limit "tag_env_${TARGET_ENV}" \
-#                --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
+image: hashicorp/terraform:1.4.6
 
 pipelines:
   custom:
-    deploy-app:
+  
+    terraform-plan-staging:
       - step:
-          name: "Teste de Gatilho Recebido"
+          name: Terraform Plan (Staging)
           script:
-            - echo "=================================================================="
-            - echo " SUCESSO! O gatilho para 'deploy-app' foi recebido e executado. "
-            - echo "=================================================================="
-            - echo ""Variáveis recebidas:" APP_NAME=${APP_NAME}, IMAGE_TAG=${IMAGE_TAG}"
+            - cd terraform/
+            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN
+            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY 
+            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
+            - terraform init -reconfigure
+            - terraform workspace select staging
+            - terraform plan -var-file="environments/staging.tfvars" -out=tfplan.out
+
+    terraform-apply-staging:
+      - step:
+          name: Terraform Apply (Staging)
+          script:
+            - cd terraform/
+            - export DIGITALOCEAN_TOKEN=$DO_API_TOKEN 
+            - export AWS_ACCESS_KEY_ID=$DO_SPACES_ACCESS_KEY 
+            - export AWS_SECRET_ACCESS_KEY=$DO_SPACES_SECRET_KEY
+            - terraform init -reconfigure
+            - terraform workspace select staging
+            - terraform apply "tfplan.out"
+
+    deploy-app:
+      - variables:
+          - name: APP_NAME
+            default: "cleaners-web-app"
+          - name: IMAGE_TAG
+            default: "latest"
+      - step:
+          name: "Deploy da App [${APP_NAME}:${IMAGE_TAG}]"
+          image: python:3.11 
+          script:
+            - apt update && apt install -y curl git sshpass 
+            - export ANSIBLE_HOST_KEY_CHECKING=False 
+            - pip install ansible==9.4.0 docker==6.1.3 community.digitalocean
+            - ansible-galaxy collection install -r ansible/requirements.yml
+            - export DO_TOKEN=$DO_API_TOKEN
+            - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
+            - ansible-playbook \
+                -i ansible/digitalocean.yaml \
+                ansible/playbooks/deploy_app.yaml \
+                --limit app-server \
+                --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
+    
+    reconfigure-nginx:
+      - variables:
+          - name: DOMAIN_NAME
+          - name: CERTBOT_EMAIL
+      - step:
+          name: "Reconfigurar Nginx/SSL"
+          image: python:3.11
+          script:
+            - apt update && apt install -y curl git sshpass
+            - export ANSIBLE_HOST_KEY_CHECKING=False
+            - pip install ansible==9.4.0 docker==6.1.3 community.digitalocean
+            - ansible-galaxy collection install -r ansible/requirements.yml            
+            - export DO_TOKEN=$DO_API_TOKEN             
+            - ansible-playbook \
+                -i ansible/digitalocean.yaml \
+                ansible/playbooks/configure_host.yml \
+                --limit app-server \
+                --extra-vars "domain_name_var=${DOMAIN_NAME} certbot_email=${CERTBOT_EMAIL}"
