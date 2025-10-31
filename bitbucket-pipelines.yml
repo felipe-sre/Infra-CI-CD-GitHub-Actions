@@ -41,7 +41,8 @@ definitions:
             mkdir -p ~/.ssh
             echo "$DO_SSH_KEY" > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key                     
             export DO_TOKEN=$DO_API_TOKEN
-            cd cleaners-infra/cleaner-infra-nginx-proxies/ansible            
+            cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            chmod 755 .            
             echo "--- Executando Playbook de Configuração (playbook.yml) ---"
             ansible-playbook \
               playbooks/playbook.yml \
@@ -71,6 +72,7 @@ definitions:
             export DO_TOKEN=$DO_API_TOKEN
             export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
             cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            chmod 755 .
             echo "--- Executando Playbook de Deploy (deploy_app.yaml) ---"
             ansible-playbook \
               playbooks/deploy_app.yaml \
