@@ -40,7 +40,7 @@ pipelines:
             - apt update && apt install -y curl git sshpass 
             - export ANSIBLE_HOST_KEY_CHECKING=False 
             - pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
-            - ansible-galaxy collection install -r ansible/requirements.yml
+            - ansible-galaxy collection install -r cleanes-infra-nginx-proxies/ansible/requirements.yml
             - export DO_TOKEN=$DO_API_TOKEN
             - export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
             - ansible-playbook \
