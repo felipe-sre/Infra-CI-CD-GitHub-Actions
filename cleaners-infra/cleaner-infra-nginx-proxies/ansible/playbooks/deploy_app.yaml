@@ -3,8 +3,8 @@
   gather_facts: false
   become: true
 
-  vars_files:
-    - ../apps.yaml
+  # vars_files:
+  #   - ../../../apps.yaml
 
   vars:
     ansible_docker_host: "unix:///var/run/docker.sock"
