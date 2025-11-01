@@ -68,7 +68,7 @@ definitions:
             python3 -m venv venv
             source venv/bin/activate
             pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
-            ansible-galaxy collection install -r cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
+            ansible-galaxy collection install -r $BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/ansible/requirements.yml
             echo "--- Configurando Chave SSH ---"
             mkdir -p ~/.ssh
             echo "$DO_SSH_KEY" | base64 -d > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
@@ -79,12 +79,12 @@ definitions:
             chmod 755 .
             echo "--- Executando Playbook de Deploy (deploy_app.yaml) ---"
             ansible-playbook \
-              playbooks/deploy_app.yaml \
-              -i digitalocean.yaml \
+              $BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/ansible/playbooks/deploy_app.yaml \
+              -i $BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
               --limit app-server \
               --user root \
               --private-key ~/.ssh/ansible_ssh_key \
-              --extra-vars "@$BITBUCKET_CLONE_DIR/apps.yaml" \
+              --extra-vars "@$BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/apps.yaml" \
               --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
             echo "--- Ansible Playbook Concluído ---"  
 
