@@ -75,16 +75,16 @@ definitions:
             echo "Chave SSH configurada."
             export DO_TOKEN=$DO_API_TOKEN
             export FULL_IMAGE_PATH="${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}"
-            cd cleaners-infra/cleaner-infra-nginx-proxies/ansible
+            cd cleaners-infra/
             chmod 755 .
             echo "--- Executando Playbook de Deploy (deploy_app.yaml) ---"
             ansible-playbook \
-              $BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/ansible/playbooks/deploy_app.yaml \
-              -i $BITBUCKET_CLONE_DIR/cleaners-infra/cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
+              cleaner-infra-nginx-proxies/ansible/playbooks/deploy_app.yaml \
+              -i cleaner-infra-nginx-proxies/ansible/digitalocean.yaml \
               --limit app-server \
               --user root \
               --private-key ~/.ssh/ansible_ssh_key \
-              --extra-vars "@$BITBUCKET_CLONE_DIR/cleaners-infra/apps.yaml" \
+              --extra-vars "@apps.yaml" \
               --extra-vars "app_to_deploy=${APP_NAME} full_image_path=${FULL_IMAGE_PATH} docker_username=$DOCKER_USERNAME docker_password=$DOCKER_PASSWORD"
             echo "--- Ansible Playbook Concluído ---"  
 
