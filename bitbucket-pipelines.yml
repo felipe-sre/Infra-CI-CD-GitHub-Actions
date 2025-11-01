@@ -3,6 +3,26 @@ image: hashicorp/terraform:1.4.6
 definitions:
   steps:
     
+    - step: &build-and-push
+        name: "Build & Push Docker Image [${APP_NAME}:${IMAGE_TAG}]"
+        image: docker:latest
+        services:
+          - docker
+        variables:
+          - name: APP_NAME
+            default: "landing-page"
+          - name: IMAGE_TAG
+            default: "latest"
+        script:
+          - echo "--- Fazendo login no Container Registry ---"
+          - echo "$DOCKER_PASSWORD" | docker login registry.digitalocean.com -u "$DOCKER_USERNAME" --password-stdin
+          - echo "--- Building imagem Docker ---"
+          - cd ${APP_NAME}
+          - docker build -t ${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG} .
+          - echo "--- Pushing imagem para o registry ---"
+          - docker push ${DOCKER_REPO}/${APP_NAME}:${IMAGE_TAG}
+          - echo "--- Imagem publicada com sucesso! ---"
+    
     - step: &plan
         name: Terraform Plan (Staging)
         script:
@@ -59,7 +79,7 @@ definitions:
         image: python:3.12
         variables:
           - name: APP_NAME
-            default: "landing-page" # Puxado do apps.yaml
+            default: "landing-page"
           - name: IMAGE_TAG
             default: "latest"
         script:
@@ -99,13 +119,25 @@ pipelines:
           default: "damasio34.com.br"
         - name: CERTBOT_EMAIL
           default: "contato@d34.com.br"
-                
+        - name: APP_NAME
+          default: "landing-page"
+        - name: IMAGE_TAG
+          default: "latest"  
+
+      - step: *build-and-push          
       - step: *plan
       - step: *apply
       - step: *reconfigure
       - step: *deploy
 
     # Depuração
+    build-and-push-image:
+      - variables:
+        - name: APP_NAME
+          default: "landing-page"
+        - name: IMAGE_TAG
+          default: "latest"
+      - step: *build-and-push
     terraform-plan-staging:
       - step: *plan
     terraform-apply-staging:
@@ -113,6 +145,11 @@ pipelines:
     reconfigure-nginx:
       - step: *reconfigure
     deploy-app:
+      - variables:
+        - name: APP_NAME
+          default: "landing-page"
+        - name: IMAGE_TAG
+          default: "latest"
       - step: *deploy
 
   # Pipeline Automático (ao fazer merge na 'main', por ex.)

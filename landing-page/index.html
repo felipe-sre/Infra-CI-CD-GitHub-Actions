@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landing Page - Teste CI/CD</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 800px;
+        }
+        
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            animation: fadeInDown 1s ease-out;
+        }
+        
+        .subtitle {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            animation: fadeInUp 1s ease-out 0.3s backwards;
+        }
+        
+        .status {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 2rem;
+            animation: fadeIn 1s ease-out 0.6s backwards;
+        }
+        
+        .status-item {
+            margin: 1rem 0;
+            font-size: 1.2rem;
+        }
+        
+        .badge {
+            display: inline-block;
+            background: #10b981;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-weight: bold;
+            margin-left: 0.5rem;
+        }
+        
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CI/CD Funcionando!</h1>
+        <p class="subtitle">Pipeline de Deploy Automatizado</p>
+        
+        <div class="status">
+            <div class="status-item">
+                ✅ Build <span class="badge">OK</span>
+            </div>
+            <div class="status-item">
+                ✅ Deploy <span class="badge">OK</span>
+            </div>
+            <div class="status-item">
+                ✅ Container Registry <span class="badge">OK</span>
+            </div>
+            <div class="status-item">
+                ✅ Nginx Proxy <span class="badge">OK</span>
+            </div>
+        </div>
+        
+        <p style="margin-top: 2rem; opacity: 0.8; animation: fadeIn 1s ease-out 0.9s backwards;">
+            Infraestrutura funcionando perfeitamente.
+        </p>
+    </div>
+</body>
+</html>
