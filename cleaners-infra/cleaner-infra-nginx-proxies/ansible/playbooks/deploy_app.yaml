@@ -9,12 +9,12 @@
   tasks:
     - name: "Definir dados da aplicação a ser implantada"
       ansible.builtin.set_fact:
-        current_app: "{{ apps | selectattr('name', '==', app_to_deploy) | first }}"
+        current_app: "{{ apps | selectattr('name', '==', app_to_deploy) | list | first | default({}) }}"
     
     - name: "Falhar se a aplicação não for encontrada"
       ansible.builtin.fail:
         msg: "A aplicação '{{ app_to_deploy }}' não foi encontrada no arquivo apps.yaml."
-      when: current_app is not defined
+      when: current_app == {} or current_app.name is not defined
 
     - name: "Login no container registry da DigitalOcean"
       community.docker.docker_login:

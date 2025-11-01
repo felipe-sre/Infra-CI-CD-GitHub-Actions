@@ -20,5 +20,3 @@ apps:
   #  route: "//"
   #  internal_port: 5000
   #  host_port: 8083
-
-  # teste
