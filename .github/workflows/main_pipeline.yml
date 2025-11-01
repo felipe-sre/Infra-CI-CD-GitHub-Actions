@@ -22,8 +22,9 @@ on:
         required: true
   
   # Você pode descomentar para rodar em um push para a branch principal
-  # push:
-  #   branches: [ main ]
+  push:
+    branches:
+      - 'feat/iac-ci-cd'
 
 env:
   FULL_IMAGE_PATH: ${{ secrets.DOCKER_REPO }}/${{ github.event.inputs.app_name || 'landing-page' }}:${{ github.event.inputs.image_tag || 'latest' }}
