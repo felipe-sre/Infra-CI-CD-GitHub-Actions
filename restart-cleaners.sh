@@ -1,90 +1,136 @@
 #!/bin/bash
 
-# Script para reiniciar containers Docker (um, vários ou todos)
-# Lê os serviços a partir do docker-compose.yml e permite seleção interativa.
-# Uso: ./restart-cleaners.sh [servico1 servico2 ...]
-# Se nenhum serviço for informado via argumento ou seleção, reinicia todos.
+# Script para reiniciar aplicações via Ansible
+# Lê apps.yaml e permite reiniciar via playbook deploy_app.yaml
+# Uso: ./restart-apps.sh [nome-da-app]
 
 set -e
 
-# Função para detectar o comando docker compose
-compose_cmd() {
-    if docker compose version >/dev/null 2>&1; then
-        echo "docker compose"
-    elif docker-compose version >/dev/null 2>&1; then
-        echo "docker-compose"
-    else
-        echo "❌ Nem 'docker compose' nem 'docker-compose' encontrados." >&2
-        exit 1
-    fi
-}
+# Cores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-DCMD=$(compose_cmd)
+# Caminhos
+APPS_FILE="cleaners-infra/cleaner-infra-nginx-proxies/apps.yaml"
+ANSIBLE_DIR="cleaners-infra/cleaner-infra-nginx-proxies/ansible"
+INVENTORY="$ANSIBLE_DIR/digitalocean.yaml"
+PLAYBOOK="$ANSIBLE_DIR/playbooks/deploy_app.yaml"
 
-# Caminho do docker-compose.yml
-COMPOSE_FILE="./docker-compose.yml"
-if [ ! -f "$COMPOSE_FILE" ]; then
-    echo "❌ Arquivo docker-compose.yml não encontrado em $(pwd)"
+# Verifica arquivos necessários
+if [ ! -f "$APPS_FILE" ]; then
+    echo -e "${RED}❌ Arquivo apps.yaml não encontrado em: $APPS_FILE${NC}"
     exit 1
 fi
 
-# Obtém lista de serviços definidos no compose
-AVAILABLE_SERVICES=($($DCMD config --services))
-SELECTED_SERVICES=()
+if [ ! -f "$PLAYBOOK" ]; then
+    echo -e "${RED}❌ Playbook deploy_app.yaml não encontrado${NC}"
+    exit 1
+fi
 
-# Se o usuário passou nomes diretamente como argumentos, usa eles
+# Verifica variáveis de ambiente necessárias
+if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ] || [ -z "$DOCKER_REPO" ]; then
+    echo -e "${YELLOW}⚠️  Variáveis de ambiente não configuradas!${NC}"
+    echo "Execute:"
+    echo "  export DOCKER_USERNAME='seu-usuario'"
+    echo "  export DOCKER_PASSWORD='seu-token'"
+    echo "  export DOCKER_REPO='registry.digitalocean.com/seu-registry'"
+    exit 1
+fi
+
+# Lê aplicações disponíveis do apps.yaml
+AVAILABLE_APPS=($(grep -E '^\s+- name:' "$APPS_FILE" | sed 's/.*name: *//'))
+
+if [ ${#AVAILABLE_APPS[@]} -eq 0 ]; then
+    echo -e "${RED}❌ Nenhuma aplicação encontrada em apps.yaml${NC}"
+    exit 1
+fi
+
+SELECTED_APP=""
+
+# Se passou argumento, usa ele
 if [ $# -gt 0 ]; then
-    SELECTED_SERVICES=("$@")
+    SELECTED_APP="$1"
+    
+    # Valida se existe
+    if [[ ! " ${AVAILABLE_APPS[@]} " =~ " ${SELECTED_APP} " ]]; then
+        echo -e "${RED}❌ Aplicação '$SELECTED_APP' não encontrada!${NC}"
+        echo "Disponíveis: ${AVAILABLE_APPS[*]}"
+        exit 1
+    fi
 else
-    echo "🧩 Serviços disponíveis:"
+    # Menu interativo
+    echo -e "${BLUE}🧩 Aplicações disponíveis:${NC}"
     i=1
-    for svc in "${AVAILABLE_SERVICES[@]}"; do
-        echo "  [$i] $svc"
+    for app in "${AVAILABLE_APPS[@]}"; do
+        echo "  [$i] $app"
         ((i++))
     done
-
+    
     echo ""
-    read -p "👉 Digite os números dos serviços que deseja reiniciar (ex: 1 3 4). Deixe em branco para todos: " -a selections
-
-    if [ ${#selections[@]} -eq 0 ]; then
-        SELECTED_SERVICES=("${AVAILABLE_SERVICES[@]}")
-        echo "⚙️  Nenhum serviço selecionado. Todos serão reiniciados."
-    else
-        for num in "${selections[@]}"; do
-            if [[ $num =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#AVAILABLE_SERVICES[@]}" ]; then
-                SELECTED_SERVICES+=("${AVAILABLE_SERVICES[$((num-1))]}")
-            else
-                echo "⚠️  Ignorando entrada inválida: $num"
-            fi
-        done
+    read -p "👉 Digite o número da aplicação para reiniciar: " selection
+    
+    if [[ ! $selection =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt "${#AVAILABLE_APPS[@]}" ]; then
+        echo -e "${RED}❌ Seleção inválida!${NC}"
+        exit 1
     fi
+    
+    SELECTED_APP="${AVAILABLE_APPS[$((selection-1))]}"
 fi
 
 echo ""
-echo "🚀 Serviços selecionados para reiniciar: ${SELECTED_SERVICES[*]}"
+echo -e "${GREEN}🚀 Reiniciando aplicação: $SELECTED_APP${NC}"
 echo ""
 
-for SERVICE in "${SELECTED_SERVICES[@]}"; do
-    IMAGE=$(docker inspect --format='{{.Config.Image}}' "$SERVICE" 2>/dev/null || true)
-    echo "---------------------------------------------"
-    echo "⏹️  Parando serviço '$SERVICE'..."
-    $DCMD stop "$SERVICE" || true
+# Pergunta pela tag da imagem
+read -p "📦 Tag da imagem (default: latest): " IMAGE_TAG
+IMAGE_TAG=${IMAGE_TAG:-latest}
 
-    echo "🗑️  Removendo container '$SERVICE'..."
-    $DCMD rm -f "$SERVICE" || true
+FULL_IMAGE_PATH="${DOCKER_REPO}/${SELECTED_APP}:${IMAGE_TAG}"
 
-    if [ -n "$IMAGE" ]; then
-        echo "🧹 Removendo imagem '$IMAGE'..."
-        docker rmi "$IMAGE" || true
-    fi
-
-    echo "⬇️  Atualizando imagem e subindo '$SERVICE'..."
-    $DCMD pull "$SERVICE" || true
-    $DCMD up -d "$SERVICE"
-
-    echo "✅ Serviço '$SERVICE' reiniciado com sucesso!"
-done
-
+echo ""
 echo "---------------------------------------------"
-echo "🎉 Processo concluído!"
+echo -e "${YELLOW}Configuração:${NC}"
+echo "  App: $SELECTED_APP"
+echo "  Imagem: $FULL_IMAGE_PATH"
+echo "  Inventário: $INVENTORY"
+echo "---------------------------------------------"
+echo ""
 
+read -p "Continuar? (y/N): " confirm
+if [[ ! $confirm =~ ^[Yy]$ ]]; then
+    echo "Cancelado."
+    exit 0
+fi
+
+echo ""
+echo -e "${BLUE}⏳ Executando Ansible...${NC}"
+echo ""
+
+# Executa o playbook
+ansible-playbook \
+  "$PLAYBOOK" \
+  -i "$INVENTORY" \
+  --limit app-server \
+  --user root \
+  --private-key ~/.ssh/ansible_ssh_key \
+  --extra-vars "@$APPS_FILE" \
+  --extra-vars "app_to_deploy=$SELECTED_APP" \
+  --extra-vars "full_image_path=$FULL_IMAGE_PATH" \
+  --extra-vars "docker_username=$DOCKER_USERNAME" \
+  --extra-vars "docker_password=$DOCKER_PASSWORD"
+
+EXIT_CODE=$?
+
+echo ""
+echo "---------------------------------------------"
+if [ $EXIT_CODE -eq 0 ]; then
+    echo -e "${GREEN}✅ Aplicação '$SELECTED_APP' reiniciada com sucesso!${NC}"
+else
+    echo -e "${RED}❌ Erro ao reiniciar '$SELECTED_APP' (código: $EXIT_CODE)${NC}"
+fi
+echo "---------------------------------------------"
+
+exit $EXIT_CODE
