@@ -129,10 +129,24 @@ pipelines:
       - step: *build-and-push          
       - step: *plan
       - step: *apply
+      - step: *reconfigure  
+      - step: *deploy       
+
+    # Deploy completo === execução isolada ===
+    full-deploy-app:
+      - variables:
+        - name: APP_NAME
+          default: "landing-page"
+        - name: IMAGE_TAG
+          default: "latest"
+        - name: DOMAIN_NAME
+          default: "damasio34.com.br"
+        - name: CERTBOT_EMAIL
+          default: "contato@d34.com.br"
       - step: *reconfigure
       - step: *deploy
 
-    # Depuração
+    # Pipelines de depuração === cautela ===
     build-and-push-image:
       - variables:
         - name: APP_NAME
@@ -140,12 +154,17 @@ pipelines:
         - name: IMAGE_TAG
           default: "latest"
       - step: *build-and-push
+      
     terraform-plan-staging:
       - step: *plan
+      
     terraform-apply-staging:
       - step: *apply
+      
     reconfigure-nginx:
       - step: *reconfigure
+      
+    # Requer que o 'reconfigure-nginx' ja tenha rodado.
     deploy-app:
       - variables:
         - name: APP_NAME
@@ -153,11 +172,3 @@ pipelines:
         - name: IMAGE_TAG
           default: "latest"
       - step: *deploy
-
-  # Pipeline Automático (ao fazer merge na 'main', por ex.)
-  # branches:
-  #   main:
-  #     - step: *plan
-  #     - step: *apply
-  #     - step: *reconfigure
-  #     - step: *deploy
