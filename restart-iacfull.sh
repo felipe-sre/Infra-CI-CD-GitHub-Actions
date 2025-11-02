@@ -1,8 +1,22 @@
 #!/bin/bash
 
-# Script para reiniciar aplicações via Ansible
-# Lê apps.yaml e permite reiniciar via playbook deploy_app.yaml
-# Uso: ./restart-apps.sh [nome-da-app]
+# Script para reiniciar aplicações via Ansible (execução LOCAL)
+# 
+# Este script permite reiniciar apps sem usar CI/CD (GitHub Actions ou Bitbucket)
+# Útil para: debug, hotfix urgente, ou restart rápido
+#
+# Pré-requisitos:
+#   - Ansible instalado localmente
+#   - Chave SSH configurada (~/.ssh/ansible_ssh_key)
+#   - Variáveis de ambiente configuradas (ver abaixo)
+#   - Acesso de rede ao servidor
+#
+# Uso: 
+#   ./restart-iacfull.sh [nome-da-app]
+#
+# Exemplos:
+#   ./restart-iacfull.sh                    # Menu interativo
+#   ./restart-iacfull.sh landing-page       # Reinicia app específica
 
 set -e
 

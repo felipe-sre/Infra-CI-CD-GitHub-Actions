@@ -1,0 +1,255 @@
+name: Terraform Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Ação do Terraform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: 'Ambiente'
+        required: true
+        type: choice
+        default: 'staging'
+        options:
+          - staging
+          - production
+      auto_approve:
+        description: 'Auto-aprovar Apply/Destroy?'
+        type: boolean
+        default: false
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'iacfull/iac-full-nginx-proxies/terraform/**'
+      - 'iacfull/iac-full-nginx-proxies/environments/**'
+
+env:
+  TF_VERSION: '1.4.6'
+  TF_WORKING_DIR: 'iacfull/iac-full-nginx-proxies/terraform'
+
+jobs:
+  terraform-plan:
+    name: "Terraform Plan [${{ github.event.inputs.environment || 'staging' }}]"
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:${{ env.TF_VERSION }}
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform Backend
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform init -reconfigure
+
+      - name: Selecionar/Criar Workspace
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          
+          WORKSPACE="${{ github.event.inputs.environment || 'staging' }}"
+          terraform workspace select $WORKSPACE || terraform workspace new $WORKSPACE
+
+      - name: Terraform Format Check
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          terraform fmt -check -recursive || echo "Arquivos não formatados"
+
+      - name: Terraform Validate
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          WORKSPACE="${{ github.event.inputs.environment || 'staging' }}"
+          
+          terraform plan \
+            -var-file="../environments/${WORKSPACE}.tfvars" \
+            -out=tfplan.out \
+            -no-color | tee plan_output.txt
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.event.inputs.environment || 'staging' }}-${{ github.run_number }}
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan.out
+            ${{ env.TF_WORKING_DIR }}/plan_output.txt
+          retention-days: 30
+
+      - name: Comentar Plan no PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+            const output = `#### Terraform Plan
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`terraform
+            ${plan}
+            \`\`\`
+            
+            </details>
+            
+            *Workspace: ${{ github.event.inputs.environment || 'staging' }}*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Plan Summary
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'staging' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Workspace:** $(terraform workspace show)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Mudanças Planejadas:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          tail -20 plan_output.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  terraform-apply:
+    name: "Terraform Apply [${{ github.event.inputs.environment }}]"
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:${{ env.TF_VERSION }}
+    environment: ${{ github.event.inputs.environment }}
+    needs: terraform-plan
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.action == 'apply' &&
+      (github.event.inputs.auto_approve == 'true' || github.event.inputs.auto_approve == true)
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform init -reconfigure
+
+      - name: Selecionar Workspace
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          terraform workspace select ${{ github.event.inputs.environment }}
+
+      - name: Terraform Apply
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform apply -auto-approve tfplan.out
+
+      - name: Terraform Output
+        id: output
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          terraform output -json > outputs.json
+          cat outputs.json
+
+      - name: Upload Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ${{ env.TF_WORKING_DIR }}/outputs.json
+
+      - name: Apply Summary
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          echo "## Terraform Apply Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Outputs:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat outputs.json >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  terraform-destroy:
+    name: "Terraform Destroy [${{ github.event.inputs.environment }}]"
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:${{ env.TF_VERSION }}
+    environment: ${{ github.event.inputs.environment }}
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.action == 'destroy' &&
+      (github.event.inputs.auto_approve == 'true' || github.event.inputs.auto_approve == true)
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Terraform Init
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform init -reconfigure
+
+      - name: Selecionar Workspace
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          terraform workspace select ${{ github.event.inputs.environment }}
+
+      - name: Terraform Destroy
+        run: |
+          cd ${{ env.TF_WORKING_DIR }}
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform destroy \
+            -var-file="../environments/${{ github.event.inputs.environment }}.tfvars" \
+            -auto-approve
+
+      - name: Destroy Summary
+        run: |
+          echo "## Terraform Destroy Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Todos os recursos foram destruídos!**" >> $GITHUB_STEP_SUMMARY

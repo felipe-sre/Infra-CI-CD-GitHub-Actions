@@ -1,69 +1,130 @@
-name: CI/CD - Infra e Deploy (Staging)
+name: CI/CD - Infraestrutura e Deploy
 
 on:
-  
   workflow_dispatch:
     inputs:
+      pipeline_type:
+        description: 'Tipo de Pipeline'
+        required: true
+        type: choice
+        options:
+          - 'staging-deploy'
+          - 'full-deploy-app'
+          - 'build-and-push-image'
+          - 'terraform-plan-staging'
+          - 'terraform-apply-staging'
+          - 'reconfigure-nginx'
+          - 'deploy-app'
       domain_name:
         description: 'Nome do Domínio'
         default: 'dominio.com.br'
-        required: true
+        required: false
       certbot_email:
         description: 'E-mail para Certbot'
         default: 'contato@email.com.br'
-        required: true
+        required: false
       app_name:
-        description: 'Nome da Aplicação (App)'
+        description: 'Nome da Aplicação'
         default: 'landing-page'
-        required: true
+        required: false
       image_tag:
-        description: 'Tag da Imagem (Ex: latest, v1.2.3)'
+        description: 'Tag da Imagem'
         default: 'latest'
-        required: true
-  
-  # Você pode descomentar para rodar em um push para a branch principal
-  # push:
-  #   branches:
-  #     - 'nome-da-branch'
+        required: false
 
 env:
+  DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
   FULL_IMAGE_PATH: ${{ secrets.DOCKER_REPO }}/${{ github.event.inputs.app_name || 'landing-page' }}:${{ github.event.inputs.image_tag || 'latest' }}
 
 jobs:
-  plan-and-apply:
-    name: Terraform IaC (Staging)
-     
+  
+  build-and-push:
+    name: "Build & Push [${{ github.event.inputs.app_name }}:${{ github.event.inputs.image_tag }}]"
     runs-on: ubuntu-latest
-    container: hashicorp/terraform:1.4.6
-    environment: staging 
-
+    if: |
+      github.event.inputs.pipeline_type == 'staging-deploy' ||
+      github.event.inputs.pipeline_type == 'build-and-push-image' ||
+      github.event.inputs.pipeline_type == 'full-deploy-app'
+    
     steps:
       - name: Checkout do Código
         uses: actions/checkout@v4
 
-      - name: Terraform Plan (Staging)
-        id: plan
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no Container Registry
+        run: |
+          echo "--- Fazendo login no Container Registry ---"
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login registry.digitalocean.com -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build e Push da Imagem
+        run: |
+          echo "--- Building imagem Docker ---"
+          cd ${{ github.event.inputs.app_name || 'landing-page' }}
+          export DOCKER_BUILDKIT=0
+          docker build -t ${{ env.FULL_IMAGE_PATH }} .
+          echo "--- Pushing imagem para o registry ---"
+          docker push ${{ env.FULL_IMAGE_PATH }}
+          echo "--- Imagem publicada com sucesso! ---"
+
+  terraform-plan:
+    name: Terraform Plan (Staging)
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:1.4.6
+    environment: staging
+    needs: build-and-push
+    if: |
+      always() &&
+      (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') &&
+      (github.event.inputs.pipeline_type == 'staging-deploy' ||
+       github.event.inputs.pipeline_type == 'terraform-plan-staging')
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Terraform Plan
         run: |
           cd iacfull/iac-full-nginx-proxies/terraform
-          # As variáveis de ambiente (Tokens) são injetadas pelo GitHub Secrets
           export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
           export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
           export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
           
-          # Os comandos do Terraform são executados
           terraform init -reconfigure
           terraform workspace select staging || terraform workspace new staging
           terraform plan -var-file="../environments/staging.tfvars" -out=tfplan.out
-        
-      
-      - name: Salvar Artefato do Plan
+
+      - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-staging
           path: iacfull/iac-full-nginx-proxies/terraform/tfplan.out
-          
-      - name: Terraform Apply (MANUAL)
-        if: github.event_name == 'workflow_dispatch' && contains(github.event.inputs.run_apply, 'true') # Condição de execução manual
+          retention-days: 7
+
+  terraform-apply:
+    name: Terraform Apply (Staging)
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:1.4.6
+    environment: staging
+    needs: terraform-plan
+    if: |
+      always() &&
+      needs.terraform-plan.result == 'success' &&
+      (github.event.inputs.pipeline_type == 'staging-deploy' ||
+       github.event.inputs.pipeline_type == 'terraform-apply-staging')
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-staging
+          path: iacfull/iac-full-nginx-proxies/terraform/
+
+      - name: Terraform Apply
         run: |
           cd iacfull/iac-full-nginx-proxies/terraform
           export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
@@ -74,88 +135,95 @@ jobs:
           terraform workspace select staging
           terraform apply -auto-approve "tfplan.out"
 
-  reconfigure:
-    name: Configurar Nginx/Host
-    needs: plan-and-apply 
-    runs-on: ubuntu-latest 
-    container: python:3.12 
+  reconfigure-nginx:
+    name: "Configurar Host (Nginx + Docker + SSL)"
+    runs-on: ubuntu-latest
+    container: python:3.12
     environment: staging
+    needs: terraform-apply
+    if: |
+      always() &&
+      (needs.terraform-apply.result == 'success' || needs.terraform-apply.result == 'skipped') &&
+      (github.event.inputs.pipeline_type == 'staging-deploy' ||
+       github.event.inputs.pipeline_type == 'full-deploy-app' ||
+       github.event.inputs.pipeline_type == 'reconfigure-nginx')
     
     steps:
       - name: Checkout do Código
         uses: actions/checkout@v4
-      
-      - name: Instalação e Configuração Ansible/Host
+
+      - name: Instalação e Configuração Ansible
         run: |
-          # 1. Instalar dependências do sistema
           apt-get update && apt-get install -y curl git sshpass python3-venv
-          
-          # 2. Configurar ambiente virtual Python e dependências
           python3 -m venv venv
           source venv/bin/activate
+          pip install --upgrade pip
           pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
           ansible-galaxy collection install -r iacfull/iac-full-nginx-proxies/ansible/requirements.yml
           
-          # 3. Configurar Chave SSH usando GitHub Secrets
           echo "--- Configurando Chave SSH ---"
           mkdir -p ~/.ssh
           echo "${{ secrets.DO_SSH_KEY }}" | base64 -d > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
           echo "Chave SSH configurada."
           
-          # 4. Executar Playbook
           export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
           cd iacfull/iac-full-nginx-proxies/ansible
           chmod 755 .
-          echo "--- Executando Playbook de Configuração (playbook.yml) ---"
+          
+          echo "--- Executando Playbook de Configuração ---"
           ansible-playbook \
             playbooks/playbook.yml \
             -i digitalocean.yaml \
             --limit app-server \
             --user root \
             --private-key ~/.ssh/ansible_ssh_key \
-            --extra-vars "domain=${{ github.event.inputs.domain_name }} certbot_email=${{ github.event.inputs.certbot_email }} app_port=8080"
+            --extra-vars "domain=${{ github.event.inputs.domain_name || 'dominio.com.br' }} certbot_email=${{ github.event.inputs.certbot_email || 'contato@email.com.br' }} app_port=8080"
 
-
-  deploy:
-    name: Deploy da App
-    needs: reconfigure 
+  deploy-app:
+    name: "Deploy da App [${{ github.event.inputs.app_name }}:${{ github.event.inputs.image_tag }}]"
     runs-on: ubuntu-latest
     container: python:3.12
     environment: staging
+    needs: reconfigure-nginx
+    if: |
+      always() &&
+      (needs.reconfigure-nginx.result == 'success' || needs.reconfigure-nginx.result == 'skipped') &&
+      (github.event.inputs.pipeline_type == 'staging-deploy' ||
+       github.event.inputs.pipeline_type == 'full-deploy-app' ||
+       github.event.inputs.pipeline_type == 'deploy-app')
     
     steps:
       - name: Checkout do Código
         uses: actions/checkout@v4
-        
-      
+
       - name: Execução do Deploy
         run: |
-          # 1. Instalar dependências
           apt-get update && apt-get install -y curl git sshpass python3-venv
           python3 -m venv venv
           source venv/bin/activate
           pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
           ansible-galaxy collection install -r iacfull/iac-full-nginx-proxies/ansible/requirements.yml
           
-          # 2. Configurar Chave SSH
           echo "--- Configurando Chave SSH ---"
           mkdir -p ~/.ssh
           echo "${{ secrets.DO_SSH_KEY }}" | base64 -d > ~/.ssh/ansible_ssh_key && chmod 600 ~/.ssh/ansible_ssh_key
           echo "Chave SSH configurada."
           
-          # 3. Executar o Playbook de Deploy
           export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
-          export FULL_IMAGE_PATH=${{ env.FULL_IMAGE_PATH }} # Variável global definida acima
-          cd iacfull/
+          export FULL_IMAGE_PATH=${{ env.FULL_IMAGE_PATH }}
+          cd iacfull/iac-full-nginx-proxies/ansible
           chmod 755 .
           
           echo "--- Executando Playbook de Deploy ---"
           ansible-playbook \
-            iac-full-nginx-proxies/ansible/playbooks/deploy_app.yaml \
-            -i iac-full-nginx-proxies/ansible/digitalocean.yaml \
+            playbooks/deploy_app.yaml \
+            -i digitalocean.yaml \
             --limit app-server \
             --user root \
             --private-key ~/.ssh/ansible_ssh_key \
-            --extra-vars "@apps.yaml" \
-            --extra-vars "app_to_deploy=${{ github.event.inputs.app_name }} full_image_path=${{ env.FULL_IMAGE_PATH }} docker_username=${{ secrets.DOCKER_USERNAME }} docker_password=${{ secrets.DOCKER_PASSWORD }}"
+            --extra-vars "@$GITHUB_WORKSPACE/iacfull/apps.yaml" \
+            --extra-vars "app_to_deploy=${{ github.event.inputs.app_name || 'landing-page' }}" \
+            --extra-vars "full_image_path=${{ env.FULL_IMAGE_PATH }}" \
+            --extra-vars "docker_username=${{ secrets.DOCKER_USERNAME }}" \
+            --extra-vars "docker_password=${{ secrets.DOCKER_PASSWORD }}"
           echo "--- Ansible Playbook Concluído ---"

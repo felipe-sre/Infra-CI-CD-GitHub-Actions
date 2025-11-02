@@ -1,0 +1,105 @@
+name: Deploy App (Sem Build/Infra)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Nome da Aplicação'
+        required: true
+        type: choice
+        options:
+          - landing-page
+          - my-api-service
+      image_tag:
+        description: 'Tag da Imagem'
+        default: 'latest'
+        required: true
+      environment:
+        description: 'Ambiente'
+        required: true
+        type: choice
+        default: 'staging'
+        options:
+          - staging
+          - production
+
+env:
+  FULL_IMAGE_PATH: ${{ secrets.DOCKER_REPO }}/${{ github.event.inputs.app_name }}:${{ github.event.inputs.image_tag }}
+
+jobs:
+  deploy:
+    name: "Deploy [${{ github.event.inputs.app_name }}:${{ github.event.inputs.image_tag }}]"
+    runs-on: ubuntu-latest
+    container: python:3.12
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Cache de Dependências Python
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-ansible-9.4.0
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Instalar Dependências
+        run: |
+          apt-get update && apt-get install -y curl git sshpass python3-venv
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+          ansible-galaxy collection install -r iacfull/iac-full-nginx-proxies/ansible/requirements.yml
+
+      - name: Configurar SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" | base64 -d > ~/.ssh/ansible_ssh_key
+          chmod 600 ~/.ssh/ansible_ssh_key
+
+      - name: Executar Deploy via Ansible
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export FULL_IMAGE_PATH=${{ env.FULL_IMAGE_PATH }}
+          
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible-playbook \
+            playbooks/deploy_app.yaml \
+            -i digitalocean.yaml \
+            --limit app-server \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            --extra-vars "@$GITHUB_WORKSPACE/iacfull/apps.yaml" \
+            --extra-vars "app_to_deploy=${{ github.event.inputs.app_name }}" \
+            --extra-vars "full_image_path=${{ env.FULL_IMAGE_PATH }}" \
+            --extra-vars "docker_username=${{ secrets.DOCKER_USERNAME }}" \
+            --extra-vars "docker_password=${{ secrets.DOCKER_PASSWORD }}" \
+            -v
+
+      - name: Verificar Status do Container
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible app-server \
+            -i digitalocean.yaml \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            -m shell \
+            -a "docker ps --filter name=${{ github.event.inputs.app_name }} --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+
+      - name: Summary do Deploy
+        run: |
+          echo "## Deploy Concluído com Sucesso!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Aplicação:** ${{ github.event.inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Versão:** ${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Ambiente:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Imagem:** ${{ env.FULL_IMAGE_PATH }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,136 @@
+name: Build & Push Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Nome da Aplicação'
+        required: true
+        type: choice
+        options:
+          - landing-page
+          - my-api-service
+      image_tag:
+        description: 'Tag da Imagem'
+        default: 'latest'
+        required: true
+      push_to_registry:
+        description: 'Push para Registry?'
+        type: boolean
+        default: true
+
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'landing-page/**'
+      - 'my-api-service/**'
+
+env:
+  DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+
+jobs:
+  detect-changes:
+    name: Detectar Mudanças
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detectar Apps Modificadas
+        id: detect
+        run: |
+          CHANGED_APPS=$(git diff --name-only HEAD^ HEAD | grep -E '^(landing-page|my-api-service)/' | cut -d'/' -f1 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+          echo "apps=${CHANGED_APPS}" >> $GITHUB_OUTPUT
+          echo "Apps modificadas: ${CHANGED_APPS}"
+
+  build-push:
+    name: "Build & Push [${{ matrix.app }}:${{ github.event.inputs.image_tag || github.sha }}]"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || 
+       (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.apps != '[]'))
+    strategy:
+      matrix:
+        app: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.app_name)) || fromJSON(needs.detect-changes.outputs.apps) }}
+    
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Definir Tag da Imagem
+        id: image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "full_path=${{ env.DOCKER_REPO }}/${{ matrix.app }}:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Login no Container Registry
+        if: github.event.inputs.push_to_registry != 'false'
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login registry.digitalocean.com -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build da Imagem Docker
+        run: |
+          cd ${{ matrix.app }}
+          docker build \
+            --tag ${{ steps.image-tag.outputs.full_path }} \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+
+      - name: Test da Imagem (Health Check)
+        run: |
+          # Inicia container temporário
+          CONTAINER_ID=$(docker run -d --rm ${{ steps.image-tag.outputs.full_path }})
+          
+          # Aguarda 10 segundos
+          sleep 10
+          
+          # Verifica se está rodando
+          if docker ps | grep -q $CONTAINER_ID; then
+            echo "Container iniciou com sucesso"
+            docker stop $CONTAINER_ID
+          else
+            echo "Container falhou ao iniciar"
+            docker logs $CONTAINER_ID || true
+            exit 1
+          fi
+
+      - name: Push para Registry
+        if: github.event.inputs.push_to_registry != 'false'
+        run: |
+          docker push ${{ steps.image-tag.outputs.full_path }}
+          echo "Imagem publicada: ${{ steps.image-tag.outputs.full_path }}"
+
+      - name: Criar Tag 'latest' (se for branch main)
+        if: github.ref == 'refs/heads/main' && github.event.inputs.push_to_registry != 'false'
+        run: |
+          docker tag ${{ steps.image-tag.outputs.full_path }} ${{ env.DOCKER_REPO }}/${{ matrix.app }}:latest
+          docker push ${{ env.DOCKER_REPO }}/${{ matrix.app }}:latest
+          echo "Tag 'latest' atualizada"
+
+      - name: Summary
+        run: |
+          echo "## Build Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ steps.image-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Imagem:** \`${{ steps.image-tag.outputs.full_path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Push:** ${{ github.event.inputs.push_to_registry != 'false' && 'Sim' || 'Não' }}" >> $GITHUB_STEP_SUMMARY

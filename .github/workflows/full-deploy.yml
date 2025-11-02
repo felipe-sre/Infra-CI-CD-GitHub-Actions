@@ -1,0 +1,293 @@
+name: Full Deploy (Completo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente'
+        required: true
+        type: choice
+        default: 'staging'
+        options:
+          - staging
+          - production
+      domain_name:
+        description: 'Nome do Domínio'
+        required: true
+      certbot_email:
+        description: 'E-mail para Certbot'
+        required: true
+      app_name:
+        description: 'Nome da Aplicação'
+        required: true
+        type: choice
+        options:
+          - landing-page
+          - my-api-service
+      image_tag:
+        description: 'Tag da Imagem'
+        default: 'latest'
+        required: true
+      skip_terraform:
+        description: 'Pular Terraform? (já existe infra)'
+        type: boolean
+        default: false
+      skip_build:
+        description: 'Pular Build? (imagem já existe)'
+        type: boolean
+        default: false
+
+env:
+  DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+  FULL_IMAGE_PATH: ${{ secrets.DOCKER_REPO }}/${{ github.event.inputs.app_name }}:${{ github.event.inputs.image_tag }}
+
+jobs:
+  
+  build-image:
+    name: "Build & Push Image"
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_build != 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no Registry
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login registry.digitalocean.com -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build & Push
+        run: |
+          cd ${{ github.event.inputs.app_name }}
+          docker build -t ${{ env.FULL_IMAGE_PATH }} .
+          docker push ${{ env.FULL_IMAGE_PATH }}
+          echo "Imagem publicada: ${{ env.FULL_IMAGE_PATH }}"
+
+  terraform:
+    name: "Provisionar Infraestrutura"
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:1.4.6
+    environment: ${{ github.event.inputs.environment }}
+    needs: build-image
+    if: |
+      always() &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') &&
+      github.event.inputs.skip_terraform != 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Terraform Init
+        run: |
+          cd iacfull/iac-full-nginx-proxies/terraform
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          terraform init -reconfigure
+
+      - name: Terraform Plan & Apply
+        run: |
+          cd iacfull/iac-full-nginx-proxies/terraform
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export AWS_ACCESS_KEY_ID=${{ secrets.DO_SPACES_ACCESS_KEY }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.DO_SPACES_SECRET_KEY }}
+          
+          terraform workspace select ${{ github.event.inputs.environment }} || terraform workspace new ${{ github.event.inputs.environment }}
+          terraform plan -var-file="../environments/${{ github.event.inputs.environment }}.tfvars" -out=tfplan.out
+          terraform apply -auto-approve tfplan.out
+
+      - name: Get Infrastructure Info
+        id: infra
+        run: |
+          cd iacfull/iac-full-nginx-proxies/terraform
+          export DIGITALOCEAN_TOKEN=${{ secrets.DO_API_TOKEN }}
+          DROPLET_IP=$(terraform output -raw app_server_ip)
+          echo "droplet_ip=${DROPLET_IP}" >> $GITHUB_OUTPUT
+          echo "Droplet IP: ${DROPLET_IP}"
+
+    outputs:
+      droplet_ip: ${{ steps.infra.outputs.droplet_ip }}
+
+  configure-host:
+    name: "Configurar Host (Nginx + SSL)"
+    runs-on: ubuntu-latest
+    container: python:3.12
+    environment: ${{ github.event.inputs.environment }}
+    needs: terraform
+    if: |
+      always() &&
+      (needs.terraform.result == 'success' || needs.terraform.result == 'skipped')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Ansible Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ansible-deps-9.4.0
+
+      - name: Install Dependencies
+        run: |
+          apt-get update && apt-get install -y curl git sshpass python3-venv
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+          ansible-galaxy collection install -r iacfull/iac-full-nginx-proxies/ansible/requirements.yml
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" | base64 -d > ~/.ssh/ansible_ssh_key
+          chmod 600 ~/.ssh/ansible_ssh_key
+
+      - name: Run Ansible Playbook
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible-playbook \
+            playbooks/playbook.yml \
+            -i digitalocean.yaml \
+            --limit app-server \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            --extra-vars "domain=${{ github.event.inputs.domain_name }}" \
+            --extra-vars "certbot_email=${{ github.event.inputs.certbot_email }}" \
+            --extra-vars "app_port=8080" \
+            -v
+
+      - name: Verify Nginx Configuration
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible app-server \
+            -i digitalocean.yaml \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            -m shell \
+            -a "nginx -t && systemctl status nginx --no-pager"
+
+  deploy-application:
+    name: "Deploy Application"
+    runs-on: ubuntu-latest
+    container: python:3.12
+    environment: ${{ github.event.inputs.environment }}
+    needs: configure-host
+    if: |
+      always() &&
+      needs.configure-host.result == 'success'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          apt-get update && apt-get install -y curl git sshpass python3-venv
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install ansible==9.4.0 docker==6.1.3 python-digitalocean
+          ansible-galaxy collection install -r iacfull/iac-full-nginx-proxies/ansible/requirements.yml
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" | base64 -d > ~/.ssh/ansible_ssh_key
+          chmod 600 ~/.ssh/ansible_ssh_key
+
+      - name: Deploy Application
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          export FULL_IMAGE_PATH=${{ env.FULL_IMAGE_PATH }}
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible-playbook \
+            playbooks/deploy_app.yaml \
+            -i digitalocean.yaml \
+            --limit app-server \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            --extra-vars "@$GITHUB_WORKSPACE/iacfull/apps.yaml" \
+            --extra-vars "app_to_deploy=${{ github.event.inputs.app_name }}" \
+            --extra-vars "full_image_path=${{ env.FULL_IMAGE_PATH }}" \
+            --extra-vars "docker_username=${{ secrets.DOCKER_USERNAME }}" \
+            --extra-vars "docker_password=${{ secrets.DOCKER_PASSWORD }}" \
+            -v
+
+      - name: Health Check
+        run: |
+          source venv/bin/activate
+          export DO_TOKEN=${{ secrets.DO_API_TOKEN }}
+          cd iacfull/iac-full-nginx-proxies/ansible
+          
+          ansible app-server \
+            -i digitalocean.yaml \
+            --user root \
+            --private-key ~/.ssh/ansible_ssh_key \
+            -m shell \
+            -a "docker ps --filter name=${{ github.event.inputs.app_name }} && docker logs --tail 50 ${{ github.event.inputs.app_name }}"
+
+  verify-deployment:
+    name: "Verificar Deploy"
+    runs-on: ubuntu-latest
+    needs: [terraform, deploy-application]
+    if: |
+      always() &&
+      needs.deploy-application.result == 'success'
+    
+    steps:
+      - name: Wait for DNS Propagation
+        run: |
+          echo "Aguardando propagação DNS..."
+          sleep 30
+
+      - name: Check DNS
+        run: |
+          DOMAIN="${{ github.event.inputs.domain_name }}"
+          echo "Verificando DNS para ${DOMAIN}..."
+          dig +short ${DOMAIN} || echo "DNS ainda não propagado"
+
+      - name: Check HTTPS
+        continue-on-error: true
+        run: |
+          DOMAIN="${{ github.event.inputs.domain_name }}"
+          echo "Testando HTTPS para ${DOMAIN}..."
+          curl -I -k https://${DOMAIN} || echo "HTTPS ainda não disponível"
+
+      - name: Final Summary
+        run: |
+          echo "## Deploy Completo!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Informações do Deploy:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ambiente:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Domínio:** https://${{ github.event.inputs.domain_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Aplicação:** ${{ github.event.inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versão:** ${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagem:** \`${{ env.FULL_IMAGE_PATH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Próximos Passos:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Aguarde 5-10 minutos para propagação completa do DNS" >> $GITHUB_STEP_SUMMARY
+          echo "2. Acesse: https://${{ github.event.inputs.domain_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "3. Verifique o certificado SSL (cadeado)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Debug (se necessário):" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH no servidor" >> $GITHUB_STEP_SUMMARY
+          echo "ssh root@\$(terraform output -raw app_server_ip)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Ver logs do container" >> $GITHUB_STEP_SUMMARY
+          echo "docker logs ${{ github.event.inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Ver status do Nginx" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status nginx" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
