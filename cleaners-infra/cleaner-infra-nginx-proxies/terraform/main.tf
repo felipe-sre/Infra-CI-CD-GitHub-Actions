@@ -16,7 +16,7 @@ data "digitalocean_domain" "main" {
 resource "digitalocean_record" "domain_a_record" {
   domain = trimsuffix(var.domain_name, ".")
   type   = "A"
-  name   = var.domain_name
+  name   = "@"
   value  = digitalocean_droplet.app_server.ipv4_address
   ttl    = 60
 }
